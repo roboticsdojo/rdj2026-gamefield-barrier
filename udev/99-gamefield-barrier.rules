@@ -1,0 +1,2 @@
+# Gamefield barrier Arduino Uno (matched by USB serial number, works in any USB port)
+SUBSYSTEM=="tty", SUBSYSTEMS=="usb", ATTRS{idVendor}=="2341", ATTRS{idProduct}=="0043", ATTRS{serial}=="11927551267164858000", SYMLINK+="gamefield_barrier", GROUP="dialout", MODE="0660"

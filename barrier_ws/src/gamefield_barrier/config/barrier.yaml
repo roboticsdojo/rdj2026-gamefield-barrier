@@ -1,0 +1,10 @@
+gamefield_barrier:
+  ros__parameters:
+    port: /dev/gamefield_barrier
+    baud: 115200
+    poll_period: 0.5
+    comms_timeout: 3.0
+    ack_timeout: 1.0
+    move_timeout: 6.0
+    reconnect_period: 2.0
+    connect_settle: 2.0

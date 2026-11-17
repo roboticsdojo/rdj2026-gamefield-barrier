@@ -2,14 +2,17 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>gamefield_barrier</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="amy.kibara@gmail.com">screen</maintainer>
-  <license>TODO: License declaration</license>
+  <version>0.1.0</version>
+  <description>ROS 2 node for the automated gamefield barrier (Arduino Uno over serial)</description>
+  <maintainer email="kabirud080@gmail.com">screen</maintainer>
+  <license>MIT</license>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>std_srvs</depend>
+  <exec_depend>python3-serial</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

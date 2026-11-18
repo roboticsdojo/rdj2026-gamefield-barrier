@@ -1,14 +1,27 @@
 #pragma once
 #include <Arduino.h>
 
-enum class Command : uint8_t {
-  NONE, OPEN, CLOSE, RESET, STATUS, HEARTBEAT, FAULT_TEST, HELP, UNKNOWN
+enum class CmdType : uint8_t {
+  NONE, OPEN, CLOSE, RESET, STATUS, HEARTBEAT, FAULT_TEST, HELP,
+  SET_DETECT_CM, SET_SEQ_TIME, SET_CLOSED_ANGLE, SET_OPEN_ANGLE,
+  SHOW_SETTINGS, FACTORY_RESET, BAD_VALUE, UNKNOWN
 };
 
-// Single-character commands (easy from the Arduino IDE serial monitor):
-//   s = open   c = close   r = reset   p = status
-//   h = heartbeat   f = inject test fault   ? = help
+struct Command {
+  CmdType type;
+  float   value;
+};
+
+// Single-letter commands run immediately:  s c r p h f ? v
+// Commands with a number end with Enter (or 100 ms of silence):
+//   d<cm>  t<sec>  a<deg>  o<deg>  x1
 class SerialCommand {
 public:
-  Command poll();   // returns NONE if no byte waiting
+  Command poll();
+
+private:
+  Command finish();
+  char          _buf[16];
+  uint8_t       _len = 0;
+  unsigned long _lastRx = 0;
 };

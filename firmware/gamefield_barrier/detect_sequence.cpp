@@ -1,21 +1,6 @@
 #include "detect_sequence.h"
 #include "config.h"
-
-using Action = DetectSequence::Action;
-using Step   = DetectSequence::Step;
-
-// Barrier was OPEN: close, wait, open again
-static const Step SEQ_FROM_OPEN[] = {
-  { Action::CLOSE, SEQ_FROM_OPEN_CLOSED_HOLD_MS },
-  { Action::OPEN,  0 }
-};
-
-// Barrier was CLOSED: wait, open, hold open, close again
-static const Step SEQ_FROM_CLOSED[] = {
-  { Action::NONE,  SEQ_FROM_CLOSED_DELAY_MS },
-  { Action::OPEN,  SEQ_FROM_CLOSED_OPEN_HOLD_MS },
-  { Action::CLOSE, 0 }
-};
+#include "settings.h"
 
 void DetectSequence::begin(ServoBarrier* barrier) {
   _barrier = barrier;
@@ -75,16 +60,22 @@ void DetectSequence::update(bool detected) {
 void DetectSequence::tryStart() {
   BarrierState s = _barrier->state();
   if (s == BarrierState::CLOSED) {
-    _steps = SEQ_FROM_CLOSED;
-    _count = sizeof(SEQ_FROM_CLOSED) / sizeof(Step);
+    // Closed: wait, open, hold open, close again
+    _buf[0] = Step{ Action::NONE,  g_settings.closedDelayMs };
+    _buf[1] = Step{ Action::OPEN,  g_settings.closedOpenHoldMs };
+    _buf[2] = Step{ Action::CLOSE, 0 };
+    _count = 3;
     Serial.println(F("SEQ:START (from CLOSED)"));
   } else if (s == BarrierState::OPEN) {
-    _steps = SEQ_FROM_OPEN;
-    _count = sizeof(SEQ_FROM_OPEN) / sizeof(Step);
+    // Open: close, hold closed, open again
+    _buf[0] = Step{ Action::CLOSE, g_settings.openClosedHoldMs };
+    _buf[1] = Step{ Action::OPEN,  0 };
+    _count = 2;
     Serial.println(F("SEQ:START (from OPEN)"));
   } else {
     return;   // moving / fault / init: ignore this detection
   }
+  _steps = _buf;
   _armed = false;
   _active = true;
   startStep(0);

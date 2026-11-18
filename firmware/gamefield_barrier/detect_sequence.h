@@ -23,6 +23,7 @@ private:
   void finish(bool ok);
 
   ServoBarrier* _barrier = nullptr;
+  Step          _buf[3];     // steps copied from g_settings when a sequence starts
   const Step*   _steps = nullptr;
   uint8_t       _count = 0;
   uint8_t       _idx = 0;

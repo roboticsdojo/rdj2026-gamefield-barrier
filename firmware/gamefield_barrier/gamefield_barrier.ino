@@ -1,4 +1,5 @@
 #include "config.h"
+#include "settings.h"
 #include "servo_barrier.h"
 #include "manual_input.h"
 #include "serial_cmd.h"
@@ -25,18 +26,143 @@ void printStatus() {
   Serial.print(F(" FAULT:")); Serial.println(ServoBarrier::faultName(barrier.faultCode()));
 }
 
+void printSettings() {
+  Serial.print(F("SETTINGS closed_angle:")); Serial.print(g_settings.closedAngle);
+  Serial.print(F(" open_angle:"));           Serial.print(g_settings.openAngle);
+  Serial.print(F(" detect_cm:"));            Serial.print(g_settings.detectCm);
+  Serial.print(F(" open_closed_hold_s:"));   Serial.print(g_settings.openClosedHoldMs / 1000.0f, 2);
+  Serial.print(F(" closed_delay_s:"));       Serial.print(g_settings.closedDelayMs / 1000.0f, 2);
+  Serial.print(F(" closed_open_hold_s:"));   Serial.println(g_settings.closedOpenHoldMs / 1000.0f, 2);
+}
+
 void printHelp() {
-  Serial.println(F("Gamefield barrier test firmware"));
+  Serial.println(F("Gamefield barrier firmware"));
   Serial.println(F("  s = open    c = close    r = reset/re-init"));
   Serial.println(F("  p = status  h = heartbeat  f = inject fault  ? = help"));
+  Serial.println(F("  d<cm>  detect distance, e.g. d40 (2-200)"));
+  Serial.println(F("  t<sec> sequence wait time, e.g. t8 or t2.5 (0-600)"));
+  Serial.println(F("  a<deg> start/closed angle, e.g. a20    o<deg> open angle, e.g. o110"));
+  Serial.println(F("  v = show settings    x1 = restore defaults"));
   Serial.println(F("  Pot fully one way = open, fully the other = close"));
-  Serial.println(F("  Ultrasonic detection runs the timed sequence automatically"));
+}
+
+void nakRange(const __FlashStringHelper* what, int lo, int hi) {
+  Serial.print(F("NAK:")); Serial.print(what);
+  Serial.print(F(" must be ")); Serial.print(lo);
+  Serial.print('-'); Serial.println(hi);
+}
+
+void handleCommand(const Command& cmd) {
+  switch (cmd.type) {
+    case CmdType::OPEN:
+      sequence.cancel();
+      if (barrier.open()) Serial.println(F("ACK:OPEN"));
+      else                Serial.println(F("NAK:OPEN (fault or initializing)"));
+      break;
+    case CmdType::CLOSE:
+      sequence.cancel();
+      if (barrier.close()) Serial.println(F("ACK:CLOSE"));
+      else                 Serial.println(F("NAK:CLOSE (fault or initializing)"));
+      break;
+    case CmdType::RESET:
+      sequence.cancel();
+      barrier.reset();
+      Serial.println(F("ACK:RESET"));
+      break;
+    case CmdType::STATUS:
+      printStatus();
+      break;
+    case CmdType::HEARTBEAT:
+      Serial.println(F("ACK:HB"));
+      break;
+    case CmdType::FAULT_TEST:
+      sequence.cancel();
+      barrier.fault(FaultCode::TEST);
+      Serial.println(F("ACK:FAULT_INJECTED"));
+      break;
+    case CmdType::HELP:
+      printHelp();
+      break;
+    case CmdType::SHOW_SETTINGS:
+      printSettings();
+      break;
+
+    case CmdType::SET_DETECT_CM:
+      if (cmd.value >= ULTRA_MIN_CM && cmd.value <= ULTRA_MAX_CM) {
+        g_settings.detectCm = (uint16_t)(cmd.value + 0.5f);
+        settingsSave();
+        Serial.print(F("ACK:DETECT_CM=")); Serial.println(g_settings.detectCm);
+      } else {
+        nakRange(F("DETECT_CM"), ULTRA_MIN_CM, ULTRA_MAX_CM);
+      }
+      break;
+
+    case CmdType::SET_SEQ_TIME:
+      if (cmd.value >= 0 && cmd.value <= SETTINGS_MAX_TIME_S) {
+        uint32_t ms = (uint32_t)(cmd.value * 1000.0f + 0.5f);
+        g_settings.openClosedHoldMs = ms;
+        g_settings.closedDelayMs    = ms;
+        g_settings.closedOpenHoldMs = ms;
+        settingsSave();
+        Serial.print(F("ACK:SEQ_TIME_S=")); Serial.println(ms / 1000.0f, 2);
+      } else {
+        nakRange(F("SEQ_TIME_S"), 0, SETTINGS_MAX_TIME_S);
+      }
+      break;
+
+    case CmdType::SET_CLOSED_ANGLE:
+    case CmdType::SET_OPEN_ANGLE:
+      if (cmd.value >= 0 && cmd.value <= 180) {
+        sequence.cancel();
+        uint8_t oldClosed = g_settings.closedAngle;
+        uint8_t oldOpen   = g_settings.openAngle;
+        uint8_t angle = (uint8_t)(cmd.value + 0.5f);
+        if (cmd.type == CmdType::SET_CLOSED_ANGLE) {
+          g_settings.closedAngle = angle;
+          Serial.print(F("ACK:CLOSED_ANGLE="));
+        } else {
+          g_settings.openAngle = angle;
+          Serial.print(F("ACK:OPEN_ANGLE="));
+        }
+        Serial.println(angle);
+        settingsSave();
+        barrier.onAnglesChanged(oldClosed, oldOpen);
+      } else {
+        nakRange(F("ANGLE"), 0, 180);
+      }
+      break;
+
+    case CmdType::FACTORY_RESET:
+      if (cmd.value == 1) {
+        sequence.cancel();
+        uint8_t oldClosed = g_settings.closedAngle;
+        uint8_t oldOpen   = g_settings.openAngle;
+        settingsDefaults();
+        settingsSave();
+        barrier.onAnglesChanged(oldClosed, oldOpen);
+        Serial.println(F("ACK:DEFAULTS_RESTORED"));
+        printSettings();
+      } else {
+        Serial.println(F("NAK:send x1 to restore defaults"));
+      }
+      break;
+
+    case CmdType::BAD_VALUE:
+      Serial.println(F("NAK:BAD_VALUE (example: d40, t8, a20, o110)"));
+      break;
+    case CmdType::UNKNOWN:
+      Serial.println(F("NAK:UNKNOWN_CMD (? for help)"));
+      break;
+    case CmdType::NONE:
+      break;
+  }
 }
 
 void setup() {
   Serial.begin(SERIAL_BAUD);
   pinMode(PIN_STATUS_LED, OUTPUT);
 
+  settingsLoad();      // must come before barrier.begin()
   barrier.begin();     // known state on power-up: INITIALIZING -> CLOSED
   manual.begin();
   ultra.begin();
@@ -44,52 +170,17 @@ void setup() {
 
   lastHeartbeat = millis();
   printHelp();
+  printSettings();
   printStatus();
 }
 
 void loop() {
   // ---- Serial commands ----
   Command cmd = serialCmd.poll();
-  if (cmd != Command::NONE) {
+  if (cmd.type != CmdType::NONE) {
     lastHeartbeat = millis();
     watchdogArmed = true;     // any serial traffic counts as "ROS side is alive"
-  }
-
-  switch (cmd) {
-    case Command::OPEN:
-      sequence.cancel();
-      if (barrier.open()) Serial.println(F("ACK:OPEN"));
-      else                Serial.println(F("NAK:OPEN (fault or initializing)"));
-      break;
-    case Command::CLOSE:
-      sequence.cancel();
-      if (barrier.close()) Serial.println(F("ACK:CLOSE"));
-      else                 Serial.println(F("NAK:CLOSE (fault or initializing)"));
-      break;
-    case Command::RESET:
-      sequence.cancel();
-      barrier.reset();
-      Serial.println(F("ACK:RESET"));
-      break;
-    case Command::STATUS:
-      printStatus();
-      break;
-    case Command::HEARTBEAT:
-      Serial.println(F("ACK:HB"));
-      break;
-    case Command::FAULT_TEST:
-      sequence.cancel();
-      barrier.fault(FaultCode::TEST);
-      Serial.println(F("ACK:FAULT_INJECTED"));
-      break;
-    case Command::HELP:
-      printHelp();
-      break;
-    case Command::UNKNOWN:
-      Serial.println(F("NAK:UNKNOWN_CMD (? for help)"));
-      break;
-    case Command::NONE:
-      break;
+    handleCommand(cmd);
   }
 
   // ---- Manual knob override (works even in FAULT / without comms) ----

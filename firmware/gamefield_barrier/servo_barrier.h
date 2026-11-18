@@ -28,7 +28,10 @@ public:
   bool close(bool force = false);
 
   void reset();                  // clear fault, re-initialize to CLOSED
-  void fault(FaultCode code);    // enter FAULT, move to SAFE_ANGLE
+  void fault(FaultCode code);    // enter FAULT, move to the safe angle
+
+  // Call after g_settings.closedAngle / openAngle changed, so the servo follows
+  void onAnglesChanged(uint8_t oldClosed, uint8_t oldOpen);
 
   BarrierState state() const { return _state; }
   FaultCode    faultCode() const { return _fault; }
@@ -47,9 +50,3 @@ private:
   unsigned long _arrivedAt = 0;
   unsigned long _lastStep = 0;
 };
-
-// servo - D9
-// pot pin - A0
-// status led - built in
-// trig - D7
-// echo -D8

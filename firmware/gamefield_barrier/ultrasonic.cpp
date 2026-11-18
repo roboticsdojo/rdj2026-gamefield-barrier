@@ -1,5 +1,6 @@
 #include "ultrasonic.h"
 #include "config.h"
+#include "settings.h"
 
 void Ultrasonic::begin() {
   pinMode(PIN_ULTRA_TRIG, OUTPUT);
@@ -22,7 +23,7 @@ void Ultrasonic::update() {
   unsigned long us = pulseIn(PIN_ULTRA_ECHO, HIGH, (unsigned long)ULTRA_MAX_CM * 58UL);
   _dist = (us == 0) ? -1 : (int)(us / 58UL);
 
-  bool hit = (_dist >= ULTRA_MIN_CM && _dist <= ULTRA_DETECT_CM);
+  bool hit = (_dist >= ULTRA_MIN_CM && _dist <= (int)g_settings.detectCm);
   if (hit) {
     if (_hits < 255) _hits++;
     _misses = 0;

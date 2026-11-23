@@ -2,6 +2,14 @@
 #include "config.h"
 #include "settings.h"
 
+// Random wait between the configured minimum and maximum (inclusive)
+static unsigned long pickWaitMs() {
+  unsigned long lo = g_settings.waitMinMs;
+  unsigned long hi = g_settings.waitMaxMs;
+  if (hi <= lo) return lo;
+  return (unsigned long)random((long)lo, (long)hi + 1);
+}
+
 void DetectSequence::begin(ServoBarrier* barrier) {
   _barrier = barrier;
   _active = false;
@@ -59,22 +67,26 @@ void DetectSequence::update(bool detected) {
 
 void DetectSequence::tryStart() {
   BarrierState s = _barrier->state();
+  unsigned long waitMs = pickWaitMs();
+
   if (s == BarrierState::CLOSED) {
-    // Closed: wait, open, hold open, close again
-    _buf[0] = Step{ Action::NONE,  g_settings.closedDelayMs };
-    _buf[1] = Step{ Action::OPEN,  g_settings.closedOpenHoldMs };
-    _buf[2] = Step{ Action::CLOSE, 0 };
-    _count = 3;
-    Serial.println(F("SEQ:START (from CLOSED)"));
-  } else if (s == BarrierState::OPEN) {
-    // Open: close, hold closed, open again
-    _buf[0] = Step{ Action::CLOSE, g_settings.openClosedHoldMs };
-    _buf[1] = Step{ Action::OPEN,  0 };
+    // Closed: random wait, open, then stay open
+    _buf[0] = Step{ Action::NONE, waitMs };
+    _buf[1] = Step{ Action::OPEN, 0 };
     _count = 2;
-    Serial.println(F("SEQ:START (from OPEN)"));
+    Serial.print(F("SEQ:START (from CLOSED) wait="));
+  } else if (s == BarrierState::OPEN && SEQ_RETRIGGER_WHEN_OPEN) {
+    // Optional: close, random wait, open again
+    _buf[0] = Step{ Action::CLOSE, waitMs };
+    _buf[1] = Step{ Action::OPEN, 0 };
+    _count = 2;
+    Serial.print(F("SEQ:START (from OPEN) wait="));
   } else {
-    return;   // moving / fault / init: ignore this detection
+    return;   // open (stay open), moving, fault or init: ignore this detection
   }
+  Serial.print(waitMs / 1000.0f, 1);
+  Serial.println('s');
+
   _steps = _buf;
   _armed = false;
   _active = true;

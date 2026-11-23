@@ -30,9 +30,8 @@ void printSettings() {
   Serial.print(F("SETTINGS closed_angle:")); Serial.print(g_settings.closedAngle);
   Serial.print(F(" open_angle:"));           Serial.print(g_settings.openAngle);
   Serial.print(F(" detect_cm:"));            Serial.print(g_settings.detectCm);
-  Serial.print(F(" open_closed_hold_s:"));   Serial.print(g_settings.openClosedHoldMs / 1000.0f, 2);
-  Serial.print(F(" closed_delay_s:"));       Serial.print(g_settings.closedDelayMs / 1000.0f, 2);
-  Serial.print(F(" closed_open_hold_s:"));   Serial.println(g_settings.closedOpenHoldMs / 1000.0f, 2);
+  Serial.print(F(" wait_min_s:"));           Serial.print(g_settings.waitMinMs / 1000.0f, 2);
+  Serial.print(F(" wait_max_s:"));           Serial.println(g_settings.waitMaxMs / 1000.0f, 2);
 }
 
 void printHelp() {
@@ -40,16 +39,28 @@ void printHelp() {
   Serial.println(F("  s = open    c = close    r = reset/re-init"));
   Serial.println(F("  p = status  h = heartbeat  f = inject fault  ? = help"));
   Serial.println(F("  d<cm>  detect distance, e.g. d40 (2-200)"));
-  Serial.println(F("  t<sec> sequence wait time, e.g. t8 or t2.5 (0-600)"));
+  Serial.println(F("  t<sec> MIN random wait before opening, e.g. t5 (0-600)"));
+  Serial.println(F("  m<sec> MAX random wait before opening, e.g. m15 (0-600)"));
   Serial.println(F("  a<deg> start/closed angle, e.g. a20    o<deg> open angle, e.g. o110"));
   Serial.println(F("  v = show settings    x1 = restore defaults"));
   Serial.println(F("  Pot fully one way = open, fully the other = close"));
+  Serial.println(F("  Object detected while closed -> random wait -> opens and STAYS open"));
 }
 
 void nakRange(const __FlashStringHelper* what, int lo, int hi) {
   Serial.print(F("NAK:")); Serial.print(what);
   Serial.print(F(" must be ")); Serial.print(lo);
   Serial.print('-'); Serial.println(hi);
+}
+
+void seedRandom() {
+  // A1 is left unconnected: its noisy low bit gives us entropy
+  uint32_t seed = 0;
+  for (uint8_t i = 0; i < 32; i++) {
+    seed = (seed << 1) ^ (uint32_t)(analogRead(PIN_RANDOM_SEED) & 1);
+    delayMicroseconds(200);
+  }
+  randomSeed(seed ^ micros());
 }
 
 void handleCommand(const Command& cmd) {
@@ -97,16 +108,29 @@ void handleCommand(const Command& cmd) {
       }
       break;
 
-    case CmdType::SET_SEQ_TIME:
+    case CmdType::SET_WAIT_MIN:
+    case CmdType::SET_WAIT_MAX:
       if (cmd.value >= 0 && cmd.value <= SETTINGS_MAX_TIME_S) {
         uint32_t ms = (uint32_t)(cmd.value * 1000.0f + 0.5f);
-        g_settings.openClosedHoldMs = ms;
-        g_settings.closedDelayMs    = ms;
-        g_settings.closedOpenHoldMs = ms;
+        if (cmd.type == CmdType::SET_WAIT_MIN) {
+          if (ms > g_settings.waitMaxMs) {
+            Serial.println(F("NAK:WAIT_MIN must be <= WAIT_MAX (raise it first with m<sec>)"));
+            break;
+          }
+          g_settings.waitMinMs = ms;
+          Serial.print(F("ACK:WAIT_MIN_S="));
+        } else {
+          if (ms < g_settings.waitMinMs) {
+            Serial.println(F("NAK:WAIT_MAX must be >= WAIT_MIN (lower it first with t<sec>)"));
+            break;
+          }
+          g_settings.waitMaxMs = ms;
+          Serial.print(F("ACK:WAIT_MAX_S="));
+        }
         settingsSave();
-        Serial.print(F("ACK:SEQ_TIME_S=")); Serial.println(ms / 1000.0f, 2);
+        Serial.println(ms / 1000.0f, 2);
       } else {
-        nakRange(F("SEQ_TIME_S"), 0, SETTINGS_MAX_TIME_S);
+        nakRange(F("WAIT_S"), 0, SETTINGS_MAX_TIME_S);
       }
       break;
 
@@ -148,7 +172,7 @@ void handleCommand(const Command& cmd) {
       break;
 
     case CmdType::BAD_VALUE:
-      Serial.println(F("NAK:BAD_VALUE (example: d40, t8, a20, o110)"));
+      Serial.println(F("NAK:BAD_VALUE (example: d40, t5, m15, a20, o110)"));
       break;
     case CmdType::UNKNOWN:
       Serial.println(F("NAK:UNKNOWN_CMD (? for help)"));
@@ -162,6 +186,7 @@ void setup() {
   Serial.begin(SERIAL_BAUD);
   pinMode(PIN_STATUS_LED, OUTPUT);
 
+  seedRandom();
   settingsLoad();      // must come before barrier.begin()
   barrier.begin();     // known state on power-up: INITIALIZING -> CLOSED
   manual.begin();

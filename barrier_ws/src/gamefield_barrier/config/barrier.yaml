@@ -8,3 +8,4 @@ gamefield_barrier:
     move_timeout: 6.0
     reconnect_period: 2.0
     connect_settle: 2.0
+    dhcbqe 

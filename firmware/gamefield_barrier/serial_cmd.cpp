@@ -56,13 +56,14 @@ Command SerialCommand::finish() {
     case '?': return make(CmdType::HELP);
     case 'v': return make(CmdType::SHOW_SETTINGS);
 
-    case 'd': case 't': case 'a': case 'o': case 'x': {
+    case 'd': case 't': case 'm': case 'a': case 'o': case 'x': {
       char* end;
       double v = strtod(arg, &end);
       if (end == arg || *end != '\0') return make(CmdType::BAD_VALUE);
       CmdType type = CmdType::UNKNOWN;
       if (cmd == 'd') type = CmdType::SET_DETECT_CM;
-      if (cmd == 't') type = CmdType::SET_SEQ_TIME;
+      if (cmd == 't') type = CmdType::SET_WAIT_MIN;
+      if (cmd == 'm') type = CmdType::SET_WAIT_MAX;
       if (cmd == 'a') type = CmdType::SET_CLOSED_ANGLE;
       if (cmd == 'o') type = CmdType::SET_OPEN_ANGLE;
       if (cmd == 'x') type = CmdType::FACTORY_RESET;
